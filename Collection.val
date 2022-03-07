@@ -17,7 +17,10 @@ trait Collection: Container {
   ///
   /// The method does guarantee to call `action` with the same index when it is called repeatedly
   /// with the same predicate.
-  fun with_some_index<R>(where predicate: (Element) -> Bool, _ action: (Index) -> R) -> Maybe<R>
+  fun with_some_index<E1, E2, R>(
+    where predicate: [E1](Element) -> Bool,
+    _ action: [E2](Index) -> R
+  ) -> Maybe<R>
 
 }
 
@@ -31,7 +34,10 @@ extension Collection {
     indices.for_each(fun(i) { action(self[i]) })
   }
 
-  fun with_some_index<R>(where predicate: (Element) -> Bool, _ action: (Index) -> R) -> Maybe<R> {
+  fun with_some_index<E1, E2, R>(
+    where predicate: [E1](Element) -> Bool,
+    _ action: [E2](Index) -> R
+  ) -> Maybe<R>
     indices.with_some(where: fun(i) { predicate(self[i]) }, action)
   }
 
@@ -46,7 +52,7 @@ extension Collection where Index: Copyable {
   ///
   /// The projection does guarantee to return the same index when it is called repeatedly with the
   /// same predicate.
-  fun some_index<R>(where predicate: (Element) -> Bool) -> Maybe<Index> {
+  fun some_index<E, R>(where predicate: [E](Element) -> Bool) -> Maybe<Index> {
     indices.with_some(where: fun(i) { predicate(self[i]) }, fun(i) { i.copy() })
   }
 
@@ -58,7 +64,7 @@ extension Collection where Element: Equatable {
   ///
   /// The method does guarantee to call `action` with the same index when it is called repeatedly
   /// with the same element.
-  fun with_some_index<R>(of element: Element, _ action: (Index) -> R) -> Maybe<R> {
+  fun with_some_index<E, R>(of element: Element, _ action: [E](Index) -> R) -> Maybe<R> {
     with_some_index(where: element.infix==, action)
   }
 
@@ -71,7 +77,7 @@ extension Collection where Index: Copyable, Element: Equatable {
   ///
   /// The projection does guarantee to return the same index when it is called repeatedly with the
   /// same element.
-  fun some_index<R>(where predicate: (Element) -> Bool) -> Maybe<Index> {
+  fun some_index<E, R>(where predicate: [E](Element) -> Bool) -> Maybe<Index> {
     indices.with_some(where: fun(i) { predicate(self[i]) }, fun(i) { i.copy() })
   }
 
