@@ -1,0 +1,5 @@
+trait Hashable: Equatable {
+
+  fun hash<Hasher: HasherTrait>(into hasher: inout Hasher)
+
+}

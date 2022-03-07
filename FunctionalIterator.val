@@ -1,0 +1,8 @@
+/// Note: That can serve as a type-erased iterator when 'Environment == Any'
+type FunctionalIterator<Environment, Element>: Iterator {
+
+  var _it: [Environment] () -> Element
+
+  mutating fun next() -> Element { _it() }
+
+}

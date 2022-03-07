@@ -1,0 +1,5 @@
+trait Equatable {
+
+  infix fun == (_: Self, _: Self) -> Bool
+
+}

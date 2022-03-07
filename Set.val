@@ -1,26 +1,8 @@
-trait Equatable {
-
-  infix fun == (_: Self, _: Self) -> Bool
-
-}
-
 trait EquatableWitness {
 
   type Subject
 
   fun are_equal(_: Subject, _: Subject) -> Bool
-
-}
-
-trait Hasher {
-
-  mutating fun combine(_ i: Int)
-
-}
-
-trait Hashable: Equatable {
-
-  fun hash<H: Hasher>(into hasher: inout H)
 
 }
 
