@@ -1,0 +1,74 @@
+/// An array of homogeneous element stored contiguously.
+public type Array<Element> {
+
+  /// The type representing positions in an array.
+  type Index = Int
+
+  /// A pointer to the array's storage.
+  var storage: MutablePointer<Element>
+
+  /// The capacity of the array's storage.
+  var capacity: Int
+
+  /// The number of elements in the array.
+  var count: Int
+
+  new() {
+    start = .null
+    capacity = 0
+    count = 0
+  }
+
+  // MARK: Access
+
+  /// Accesses the element stored at the specified position.
+  out proj [] (_ position: Index) -> Element {
+    read {
+      precondition(position >= 0 && position < count, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+    modify {
+      precondition(position >= 0 && position < count, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+  }
+
+  /// The position of the first element in the array if it is not empty. Otherwise, the end
+  // position of the array.
+  var start_index: Index { yield 0 }
+
+  /// The position of the last element in the array if it is not empty. Othwerwise, `nil`.
+  var last_index: Maybe<Index> { yield if count > 0 { count - 1 } else { nil } }
+
+  /// The end position of the array.
+  var end_index: Index { yield count }
+
+  /// Returns the position immediately after `position``.
+  proj index(after position: Index) -> { yield position + 1 }
+
+  /// Returns the position immediately abeforefter `position``.
+  proj index(before position: Index) -> { yield position - 1 }
+
+  // MARK: Mutation
+
+  /// Appends an element at the end of the array.
+  mutating fun append(_ element: sink Element) {
+    if count >= capacity {
+      reserve(minimum_capacity: max(1, capacity * 2))
+    }
+    storage_start.advanced(by: count).initialize(to: element)
+  }
+
+  /// Reserves enough space to store at least `minimum_capacity` elements in the array without
+  /// allocating new storage.
+  mutating func reserve(minimum_capacity: Int) {
+    if minimum_capacity <= capacity { return }
+
+    let new_storage = MutablePointer<Element>.allocate(minimum_capacity)
+    new_storage.copy_bytes(from: storage, count: capacity)
+    storage.deallocate()
+    storage = new_storage
+    capacity = minimum_capacity
+  }
+
+}
