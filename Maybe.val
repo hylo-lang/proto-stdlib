@@ -3,7 +3,7 @@ type Maybe<T> = Nil | T
 extension Maybe {
 
   // Note: `nil` is a built-in sugar for `Maybe<T>.Nil()`.
-  type Nil = {}
+  type Nil {}
 
   fun map<U, E>(_ read: inout mutating [E](T) -> U) -> Maybe<U> {
     match self {
