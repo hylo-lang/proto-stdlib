@@ -1,0 +1,73 @@
+trait BidirectionalCollection: Collection {
+
+  /// The position of the last element in the collection if it is not empty; othwerwise, `nil`.
+  var last_index: Maybe<Index> { read }
+
+  /// Projects the position immediately before `position``.
+  out projection index(before position: Index) -> { read }
+
+}
+
+extension BidirectionalCollection {
+
+  /// Returns the result of `action` on the last element of this collection, or `nil` if no such
+  /// element exist.
+  fun with_last<T, E>(_ action: inout mutating [E](Element) -> T) -> Maybe<T> {
+    last_index.map(fun(i){ action(self[i]) })
+  }
+
+  /// Returns the index of the last element in the collection that satisfies `predicate`, or `nil`
+  /// if no such element exist.
+  fun last_index<E>(where predicate: inout mutating [E](Element) -> Bool) -> Maybe<Index> {
+    if var i = last_index?.copy() {
+      while true {
+        if predicate(self[i]) { return i.copy() }
+        if i != start_index {
+          i = index(before: i).copy()
+        } else {
+          break
+        }
+      }
+    }
+    return nil
+  }
+
+  mutating fun reverse() {
+    if var upper = last_index?.copy() {
+      var lower = start_index
+      while lower != upper {
+        swap_at(lower, upper)
+        lower = index(after: lower).copy()
+        upper = index(before: upper).copy()
+      }
+    }
+  }
+
+  mutating fun partition<E>(
+    by comparator: inout mutating [E](Element, Element) -> Bool
+  ) -> Maybe<Index> {
+    if is_empty { return nil }
+
+    let pivot = self[start_index]
+    var i = start_index.copy()
+    var j = with_last(.copy)!
+
+    while true {
+      while self[i] < pivot { i = index(after: i).copy() }
+      while self[j] > p { j = index(before: j).copy() }
+      if i >= j { return j }
+      swap_at(i, j)
+    }
+  }
+
+}
+
+extension BidirectionalCollection where Element: Equatable {
+
+  /// Returns the index of the last occurrence of `element` in the collection, or `nil` if
+  /// `element` is not contained.
+  fun last_index<E>(of element: Element) -> Maybe<Index> {
+    last_index(where: fun(e) { e == element })
+  }
+
+}

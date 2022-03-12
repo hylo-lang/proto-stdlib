@@ -1,0 +1,268 @@
+/// An array of homogeneous elements stored contiguously.
+public type Array<Element> {
+
+  invariant("invalid capacity") capacity >= count
+  invariant("invalid capacity") capacity > 0 || storage == .null
+
+  /// A pointer to the array's storage.
+  var storage: MutablePointer<Element>
+
+  /// The capacity of the array's storage.
+  var capacity: Int
+
+  /// The number of elements in the array.
+  var count: Int
+
+  new() {
+    self.new(storage: .null, capacity: 0, count: 0)
+  }
+
+  del {
+    if storage == .null { return }
+    for i in 0 until count {
+      storage.advanced(by: i).deinitialize()
+    }
+    storage.deallocate()
+  }
+
+  new<E>(applying element_initializer: inout mutating [E](position: Int) -> Element, count: Int) {
+    self.new()
+    reserve(minimum_capacity: count)
+    self.count = count
+
+    for i in 0 until count {
+      new_storage.advanced(by: 1).initialize(to: element_initializer(position: i))
+    }
+  }
+
+  /// Appends an element at the end of the array.
+  mutating fun append(_ element: sink Element) {
+    if count >= capacity {
+      reserve(minimum_capacity: max(1, capacity * 2))
+    }
+    storage_start.advanced(by: count).initialize(to: element)
+    count += 1
+  }
+
+  /// Removes an element at the specified position.
+  mutating fun remove(position: Index) -> Element {
+    precondition(position >= start_index && position < end_index, "index out of bounds")
+    let element = new_storage.advanced(by: 1).move()
+
+    if position < (count - 1) {
+      storage.advanced(by: position)
+        .copy_bytes(
+          from: storage.advanced(by: position + 1), count: count - position)
+    }
+
+    count  -= 1
+    return element
+  }
+
+  /// Given that the array is ordered by `comparator`, returns the position at which `element`
+  /// should be inserted to preserve the ordering.
+  fun sorted_insertion_index<E>(
+    of element: Element,
+    ordered_by comparator: inout mutating [E](Element, Element) -> Bool
+  ) -> Index {
+    var lower = start_index
+    var upper = end_index
+
+    while lower < upper {
+      let middle = (lower + upper) / 2
+      if try comparator(element, self[middle]) {
+        upper = middle
+      } else {
+        lower = middle + 1
+      }
+    }
+
+    return lower
+  }
+
+  /// Reserves enough space to store at least `minimum_capacity` elements in the array without
+  /// allocating new storage.
+  mutating func reserve(minimum_capacity: Int) {
+    if minimum_capacity <= capacity { return }
+
+    let new_storage = MutablePointer<Element>.allocate(minimum_capacity)
+    if storage != .null {
+      new_storage.copy_bytes(from: storage, count: capacity)
+      storage.deallocate()
+    }
+    storage = new_storage
+    capacity = minimum_capacity
+  }
+
+}
+
+extension Array: Collection {
+
+  type Index = Int
+
+  type Slice {
+
+    invariant("invalid range") start_index <= end_index
+
+    /// A pointer to the array's storage.
+    var storage: MutablePointer<Element>
+
+    /// The position of the first element in the slice.
+    let start_index: Array.Index
+    
+    /// The position of the last element in the slice.
+    let end_index: Array.Index
+
+  }
+
+  var start_index: Index {
+    read { yield 0 }
+  }
+
+  var last_index: Maybe<Index> {
+    read { yield if count > start_index { end_index - 1 } else { nil } }
+  }
+
+  var end_index: Index {
+    read { yield count }
+  }
+
+  projection index(after position: Index) -> {
+    read { yield position + 1 }
+  }
+
+  projection index(before position: Index) -> {
+    read { yield position - 1 }
+  }
+
+  out projection [] (_ position: Index) -> Element {
+    read {
+      precondition(position >= start_index && position < end_index, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+    modify {
+      precondition(position >= start_index && position < end_index, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+  }
+
+  out projection [] (from lower_bound: Index, to upper_bound: Index) -> Slice {
+    read {
+      precondition(lower_bound >= start_index && upper_bound <= end_index, "index out of bounds")
+      yield slice = Slice(
+        storage: storage.copy(), start_index: lower_bound.copy(), end_index: upper_bound.copy())
+    }
+    modify {
+      precondition(lower_bound >= start_index && upper_bound <= end_index, "index out of bounds")
+      var slice = Slice(
+        storage: storage.copy(), start_index: lower_bound.copy(), end_index: upper_bound.copy())
+      yield &slice
+    }
+  }
+
+  fun for_each<E>(_ read: inout mutating [E](Element) -> Bool) -> Bool {
+    for i in 0 until count {
+      if !read(storage.advanced(by: i).unsafe_pointee) { return false }
+    }
+    return true
+  }
+
+  mutating fun for_each<E>(modify: inout mutating [E](inout Element) -> Bool) -> Bool {
+    for i in 0 until count {
+      if !modify(&storage.advanced(by: i).unsafe_pointee) { return false }
+    }
+    return true
+  }
+
+  /// Inserts an element at the specified position.
+  mutating fun insert(_ element: sink Element, at position: Index) {
+    precondition(position >= 0 && position <= end_index, "index out of bounds")
+    
+    if count == capacity {
+      let new_storage = MutablePointer<Element>.allocate(capacity * 2)
+      new_storage.copy_bytes(from: storage, count: position)
+      new_storage.advanced(by: position).initialize(to: element)
+      new_storage.advanced(by: position + 1).copy_bytes(
+        from: storage.advanced(by: position), count: count - position)
+      storage.deallocate()
+      storage = new_storage
+      capacity = capacity * 2
+    } else {
+      storage.advanced(by: position + 1).copy_bytes(
+        from: storage.advanced(by: position), count: count - position)
+      storage.advanced(by: position).initialize(to: element)
+    }
+
+    count += 1
+  }
+
+  mutating fun swap_at(_ i: Index, _ j: Index) {
+    precondition(i >= start_index && i < end_index, "index out of bounds")
+    precondition(j >= start_index && j < end_index, "index out of bounds")
+    swap(&storage.advanced(by: i).unsafe_pointee, storage.advanced(by: j).unsafe_pointee)
+  }
+
+}
+
+extension Array where Element: Copyable {
+
+  new(repeating element: Element, count: Int) {
+    self.new(applying: fun(_) { element.copy() })
+  }
+
+}
+
+extension Array.Slice: Collectiion {
+
+  type Index = Array.Index
+
+  type Slice = Self
+
+  var count: Int {
+    read { yield range.upper_bound - range.lower_bound }
+  }
+
+  var last_index: Maybe<Index> {
+    read { yield if count > start_index { end_index - 1 } else { nil } }
+  }
+
+  projection index(after position: Index) -> {
+    read { yield position + 1 }
+  }
+
+  projection index(before position: Index) -> {
+    read { yield position - 1 }
+  }
+
+  out projection [] (_ position: Index) -> Element {
+    read {
+      precondition(position >= start_index && position < end_index, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+    modify {
+      precondition(position >= start_index && position < end_index, "index out of bounds")
+      yield storage.advanced(by: position).unsafe_pointee
+    }
+  }
+
+  out projection [] (from lower_bound: Index, to upper_bound: Index) -> Slice {
+    read {
+      precondition(lower_bound >= start_index && upper_bound <= end_index, "index out of bounds")
+      yield slice = Slice(
+        storage: storage.copy(), start_index: lower_bound.copy(), end_index: upper_bound.copy())
+    }
+    modify {
+      precondition(lower_bound >= start_index && upper_bound <= end_index, "index out of bounds")
+      var slice = Slice(
+        storage: storage.copy(), start_index: lower_bound.copy(), end_index: upper_bound.copy())
+      yield &slice
+    }
+  }
+
+  mutating fun swap_at(_ i: Index, _ j: Index) {
+    precondition(i >= start_index && i < end_index, "index out of bounds")
+    precondition(j >= start_index && j < end_index, "index out of bounds")
+    swap(&storage.advanced(by: i).unsafe_pointee, storage.advanced(by: j).unsafe_pointee)
+  }
+
+}

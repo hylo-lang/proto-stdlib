@@ -1,8 +1,0 @@
-/// Note: I'd like to keep 'Generator' for the Python-like feature if we bring it one day
-trait IteratorTrait {
-
-  type Element
-
-  mutating fun next() -> Element
-
-}

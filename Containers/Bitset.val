@@ -1,0 +1,127 @@
+/// A set represented by a fixed-size array of bits.
+///
+/// - Note: this type is a good use case for generic value parameters.
+/// - Note: another way to think about this type is a set of naturals.
+type Bitset {
+
+  /// The internal storage of the set.
+  var bit_array: Array<Int>
+
+  /// The number of bits that can be represented in the set.
+  let capacity: Int
+
+  new(capacity: Int) {
+    self.new(
+      repeating: 0,
+      count: Array(repeating: 0, count: capacity / Int.bit_width + 1))
+  }
+
+  /// Returns whether the bitset is empty.
+  ///
+  /// - Complexity: O(n)
+  fun is_empty() -> Bool { bit_array.all_satisfy(fun(x) { x == 0 }) }
+
+  /// The number of bits set to `1`.
+  ///
+  /// - Complexity: O(n)
+  fun count() -> Int {
+    // Kernighan's algorithm.
+    var count = 0
+    bit_array.for_each(fun[inout count](x) {
+      var n = x
+      while n != 0 {
+        n &= (n - 1)
+        count += 1
+      }
+      return true
+    })
+    return count
+  }
+
+  /// Calls `read` on each element of the collection. Iteration stops if `read` returns false.
+  ///
+  /// - Returns: `true` unless `read` returned `false`.
+  /// - Complexity: O(n)
+  fun for_each<E>(_ read: inout mutating [E](Int) -> Bool) -> Bool {
+    var result = true
+    bit_array.for_each(fun[inout result](x) {
+      for j in 0 until Int.bit_width {
+        if x & (1 << j) != 0 {
+          if !read(i + j) {
+            result = false
+            return false
+          }
+          return true
+        } else {
+          return (x >> j) & ~0 != 0
+        }
+      }
+    })
+    return result
+  }
+
+  /// Projects the bit at the specified position.
+  ///
+  /// - Complexity: O(1)
+  out projection [] (_ position: Index) -> Bool {
+
+    read {
+      let rem = position % Int.bit_width
+      yield bit_array[position / Int.bit_width] & (1 << rem) != 0
+    }
+
+    modify {
+      let rem = position % Int.bit_width
+      let pat = 1 << rem
+      var flag = bit_array[position / Int.bit_width] & pat != 0
+      
+      yield &flag
+      
+      if flag {
+        bit_array[position / Int.bit_width] |= pat
+      } else {
+        bit_array[position / Int.bit_width] &= ~pat
+      }
+    }
+
+  }
+
+  /// - Complexity: O(n)
+  mutating fun union(_ other: Self) {
+    precondition(self.capacity == other.capacity)
+    for i in 0 until self.bit_array.count {
+      self.bit_array[i] |= other.bit_array[i]
+    }
+  }
+
+  /// - Complexity: O(n)
+  mutating fun intersection(_ other: Self) {
+    precondition(self.capacity == other.capacity)
+    for i in 0 until self.bit_array.count {
+      self.bit_array[i] &= other.bit_array[i]
+    }
+  }
+
+  /// - Complexity: O(n)
+  mutating fun subtract(_ other: Self) {
+    precondition(self.capacity == other.capacity)
+    for i in 0 until self.bit_array.count {
+      self.bit_array[i] &= ~other.bit_array[i]
+    }
+  }
+
+  /// - Complexity: O(n)
+  mutating fun symmteric_difference(_ other: Self) {
+    precondition(self.capacity == other.capacity)
+    for i in 0 until self.bit_array.count {
+      self.bit_array[i] ^= other.bit_array[i]
+    }
+  }
+
+}
+
+extension Bitset: Copyable {}
+
+extension Bitset: Equatable {}
+
+extension Bitset: Hashable {}

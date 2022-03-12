@@ -1,0 +1,208 @@
+/// An associative array from hashable keys to arbitrary values.
+///
+/// - Note: We can't implement `[]` à la Swift without stored projections.
+type HashMap<Key: Hashable, Value> {
+
+  invariant("invalid capacity") capacity > count // At least one free slot.
+  invariant("invalid capacity") capacity > 0 || storage == .null
+
+  type Slot = (busy: Bool, hash: Int, payload: Maybe<(key: Key, value: Value)>)
+
+  /// A pointer to the map's storage.
+  var storage: MutablePointer<Slot>
+
+  /// The capacity of the map's storage.
+  var capacity: Int
+
+  /// The number of elements in the map.
+  var count: Int
+
+  /// The maximum load factor of the storage.
+  static let max_load_factor = 0.7
+
+  new() {
+    self.new(storage: [], capacity: 0, count: 0)
+  }
+
+  del {
+    if storage == .null { return }
+    for i in 0 until capacity {
+      storage.advanced(by: i).deinitialize()
+    }
+    storage.deallocate()
+  }
+
+  /// The current load factor of the map's storage.
+  fun load_factor() -> Double { count / capacity }
+
+  /// Associates `key` with `value`.
+  ///
+  /// - Note: It could be interesting to return the previous to which `key` was assigned, if any.
+  mutating fun assign(_ value: sink Value, to key: sink Key) {
+    // Hash the key.
+    let h = key.hash_value()
+    
+    // Check if the key is already assigned to a value.
+    if storage != .null {
+      var i = h % capacity
+      while true {
+        inout slot = storage.advanced(by: i).unsafe_pointee
+        if !slot.busy {
+          break
+        } else if (slot.hash == h) && (slot.payload.map(fun(x) { x.key == key }) ?? false) {
+          slot.payload!.value = value
+          return
+        } else {
+          i = (i + 1) % capacity
+        }
+      }
+    }
+
+    // Grow the storage if necessary.
+    if load_factor() >= Self.max_load_factor {
+      reserve(minimum_capacity: max(2, capacity * 2))
+    }
+  
+    // Insert a new key-value pair.
+    Self._insert(
+      into: storage, with_capacity: capacity, payload: (key: key, value: value), with_hash: h)
+  }
+
+  /// Returns the result of `read` on the value assigned to `key`, if such value exists.
+  fun with_value<T, E>(for key: Key, _ read: inout mutating [E](Value) -> T) -> Maybe<T> {
+    if storage == .null { return nil }
+
+    let h = key.hash_value()
+    var i = h % capacity
+    while true {
+      let slot = storage.advanced(by: i).unsafe_pointee
+      if !slot.busy {
+        break
+      } else if (slot.hash == h) && (slot.payload.map(fun(x) { x.key == key }) ?? false) {
+        return read(slot.payload!.value)
+      } else {
+        i = (i + 1) % capacity
+      }
+    }
+
+    return nil
+  }
+
+  /// Returns the result of `modify` on the value assigned to `key` passed as an `inout` argument,
+  // if such value exists.
+  fun with_value<T, E>(for key: Key, modify: inout mutating [E](Value) -> T) -> Maybe<T> {
+    if storage == .null { return nil }
+
+    let h = key.hash_value()
+    var i = h % capacity
+    while true {
+      inout slot = storage.advanced(by: i).unsafe_pointee
+      if !slot.busy {
+        break
+      } else if (slot.hash == h) && (slot.payload.map(fun(x) { x.key == key }) ?? false) {
+        return modify(&slot.payload!.value)
+      } else {
+        i = (i + 1) % capacity
+      }
+    }
+
+    return nil
+  }
+
+  /// Calls `read` on each key/value pair of the map. Iteration stops if `read` returns false.
+  ///
+  /// - Returns: `true` unless `read` returned `false`.
+  fun for_each<E>(_ read: inout mutating [E]((key: Key, value: Value))) -> Bool) -> Bool {
+    if storage == .null { return true }
+
+    for i in 0 until capacity {
+      let slot = storage.advanced(by: i).unsafe_pointee
+      if !(slot.payload.map(&read) ?? true) { return false }
+    }
+    return true
+  }
+
+  /// Transforms the values of this map.
+  mutating fun map_values_inplace<E>(_ transform: [E](Key, sink Value) -> Value) {
+    for i in 0 until capacity {
+      if !storage.advanced(by: i).unsafe_pointee.busy { continue }
+      
+      let (busy, hash, payload) = self.storage.advanced(by: i).move()
+      if busy {
+        let (key, value) = payload!
+        self.storage.advanced(by: i).initialize(
+          to: (busy: true, hash: hash, payload: (key: key, value: transform(key, value))))
+      }
+    }
+  }
+
+  /// Consumes the map and returns a new map where all values have been transformed.
+  consuming fun map_values<T, E>(_ transform: [E](Key, sink Value) -> T) -> HashMap<Key, T> {
+    var other = HashMap<Key, T>(
+      storage: .allocate(capacity),
+      capacity: capacity.copy(),
+      count: count.copy())
+
+    for i in 0 until capacity {
+      let (busy, hash, payload) = self.storage.advanced(by: i).move()
+      if busy {
+        let (key, value) = payload!
+        other.storage.advanced(by: i).initialize(
+          to: (busy: true, hash: hash, payload: (key: key, value: transform(key, value))))
+      } else {
+        other.storage.advanced(by: i).initialize(to: (busy: false, hash: hash, payload: nil))
+      }
+      if !(slot.payload.map(&read) ?? true) { return false }
+    }
+
+    storage.deallocate()
+    return other
+  }
+
+  /// Reserves enough space to store at least `minimum_capacity` elements in the array without
+  /// allocating new storage.
+  mutating fun reserve(minimum_capacity: Int) {
+    if minimum_capacity <= capacity { return }
+
+    // Allocate and initialize new storage.
+    let new_storage = MutablePointer<Element>.allocate(minimum_capacity)
+    for i in 0 until minimum_capacity {
+      new_storage.advanced(by: i).initialize(to: (busy: false, hash: 0, payload: nil))
+    }
+    
+    // Reinsert the map's elements.
+    for i in 0 until capacity {
+      let slot = storage.advanced(by: i).unsafe_pointee
+      if slot.busy {
+        let (_, h, p) = slot.move()
+        Self._insert(into: new_storage, with_capacity: minimum_capacity, payload: p, with_hash: h)
+      }
+    }
+
+    // Reassign the map's storage.
+    storage.deallocate()
+    storage = new_storage
+    capacity = minimum_capacity
+  }
+
+  /// Inserts a value into the specified storage.
+  static fun _insert(
+    into storage: MutablePointer<Slot>,
+    with_capacity capacity: Int,
+    payload: sink (key: Key, value: Value),
+    with_hash hash: Int
+  ) {
+    var i = hash % capacity
+    while storage.advanced(by: i).unsafe_pointee.busy {
+      i = (i + 1) % capacity
+    }
+    storage.advanced(by: i).assign(to: (busy: true, hash: hash, payload: payload))
+  }
+
+}
+
+extension Hashable: Copyable where Key: Copyable, Value: Copyable {}
+
+extension Hashable: Equatable where Value: Equatable {}
+
+extension Hashable: Hashable where Value: Hashable {}

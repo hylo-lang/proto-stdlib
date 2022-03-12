@@ -1,3 +1,0 @@
-type LoopAction = Break | Unit
-
-type Break {}
