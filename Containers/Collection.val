@@ -214,8 +214,8 @@ extension Collection {
 
     let indices = self.indices()
     let pivot = self[start_index]
-    var i = indices.with_first(.copy)!
-    var j = indices.with_last(.copy)!
+    var i = indices.with_first(.copy).unwrap()
+    var j = indices.with_last(.copy).unwrap()
 
     while true {
       while self[indices[i]] < pivot { i = indices.index(after: i).copy() }
