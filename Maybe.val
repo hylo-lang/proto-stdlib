@@ -1,0 +1,29 @@
+type Maybe<T> = Nil | T
+
+extension Maybe {
+
+  // Note: `nil` is a built-in sugar for `Maybe<T>.Nil()`.
+  type Nil = {}
+
+  fun map<U, E>(_ read: inout mutating [E](T) -> U) -> Maybe<U> {
+    match self {
+      let some: T { read(some) }
+      _ { nil }
+    }
+  }
+
+  mutating fun map<U, E>(consume: inout mutating [E](sink T) -> U) -> Maybe<U> {
+    match self {
+      sink let some: T { consume(some) }
+      _ { nil }
+    }
+  }
+
+  mutating fun map<E>(modify: inout mutating [E](inout T) -> T) {
+    match self {
+      inout some: T { modify(&some) }
+      _ {}
+    }
+  }
+
+}
