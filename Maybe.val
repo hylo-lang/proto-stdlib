@@ -26,4 +26,15 @@ extension Maybe {
     }
   }
 
+  consuming fun uwrap() -> T { self as! T }
+
+  out projection suffix fun ! () -> T {
+    read { yield self as! T }
+    modify {
+      var some = self as! T
+      yield &some
+      self = some
+    }
+  }
+
 }
