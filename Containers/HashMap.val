@@ -6,7 +6,7 @@ type HashMap<Key: Hashable, Value> {
   invariant("invalid capacity") capacity > count // At least one free slot.
   invariant("invalid capacity") capacity > 0 || storage == .null
 
-  type Slot = (hash: Int, payload: Maybe<(key: Key, value: Value)>)
+  type Slot = (hash: Int, busy: Bool, payload: Maybe<(key: Key, value: Value)>)
 
   /// A pointer to the map's storage.
   var storage: MutablePointer<Slot>
@@ -47,8 +47,8 @@ type HashMap<Key: Hashable, Value> {
       var i = hash % capacity
       while true {
         inout slot = storage.advanced(by: i).unsafe_pointee
-        if slot.payload == nil { break }
-        if (slot.hash == hash) && (slot.payload!.key == key) {
+        if !slot.busy { break }
+        if (slot.hash == hash) && (slot.payload.map(fun(p) { p.key == key }) ?? false) {
           slot.payload!.value = value
           return
         } else {
@@ -65,6 +65,30 @@ type HashMap<Key: Hashable, Value> {
     // Insert a new key-value pair.
     Self._insert(
       into: storage, with_capacity: capacity, payload: (key: key, value: value), with_hash: hash)
+    count += 1
+  }
+
+  /// Removes `key` from the map and returns the corresponding key/value pair.
+  fun remove(key: Key) -> Maybe<(key: Key, value: Value)> {
+    if storage == .null { return nil }
+
+    let hash = key.hash_value()
+    var i = hash % capacity
+    while true {
+      let slot = storage.advanced(by: i).unsafe_pointee
+      if !slot.busy { break }
+      if (slot.hash == hash) && (slot.payload.map(fun(p) { p.key == key }) ?? false) {
+        var new_slot: Slot = (hash: 0, busy: true, payload: nil)
+        swap(&storage.advanced(by: i).unsafe_pointee, &new_slot)
+        
+        let (_, _, payload) = new_slot
+        return payload.unwrap()
+      } else {
+        i = (i + 1) % capacity
+      }
+    }
+
+    return nil
   }
 
   /// Returns the result of `read` on the value assigned to `key`, if such value exists.
@@ -75,8 +99,8 @@ type HashMap<Key: Hashable, Value> {
     var i = hash % capacity
     while true {
       let slot = storage.advanced(by: i).unsafe_pointee
-      if slot.payload == nil { break }
-      if (slot.hash == hash) && (slot.payload!.key == key) {
+      if !slot.busy { break }
+      if (slot.hash == hash) && (slot.payload.map(fun(p) { p.key == key }) ?? false) {
         return read(slot.payload!.value)
       } else {
         i = (i + 1) % capacity
@@ -95,8 +119,8 @@ type HashMap<Key: Hashable, Value> {
     var i = hash % capacity
     while true {
       inout slot = storage.advanced(by: i).unsafe_pointee
-      if slot.payload == nil { break }
-      if (slot.hash == hash) && (slot.payload!.key == key) {
+      if !slot.busy { break }
+      if (slot.hash == hash) && (slot.payload.map(fun(p) { p.key == key }) ?? false) {
         return read(&slot.payload!.value)
       } else {
         i = (i + 1) % capacity
@@ -136,13 +160,13 @@ type HashMap<Key: Hashable, Value> {
       count: count.copy())
 
     for i in 0 until capacity {
-      let (hash, payload) = self.storage.advanced(by: i).move()
+      let (hash, busy, payload) = self.storage.advanced(by: i).move()
       if payload == nil {
-        other.storage.advanced(by: i).initialize(to: (hash: hash, payload: nil))
+        other.storage.advanced(by: i).initialize(to: (hash: hash, busy: busy, payload: nil))
       } else {
         let (key, value) = payload.unwrap()
         other.storage.advanced(by: i).initialize(
-          to: (hash: hash, payload: (key: key, value: transform(key, value))))
+          to: (hash: hash, payload: (key: key, busy: true, value: transform(key, value))))
       }
     }
 
@@ -158,12 +182,12 @@ type HashMap<Key: Hashable, Value> {
     // Allocate and initialize new storage.
     let new_storage = MutablePointer<Element>.allocate(minimum_capacity)
     for i in 0 until minimum_capacity {
-      new_storage.advanced(by: i).initialize(to: (busy: false, hash: 0, payload: nil))
+      new_storage.advanced(by: i).initialize(to: (hash: 0, busy: false, payload: nil))
     }
     
     // Reinsert the map's elements.
     for i in 0 until capacity {
-      let (hash, payload) = storage.advanced(by: i).move()
+      let (hash, busy, payload) = storage.advanced(by: i).move()
       if payload == nil { continue }
 
       Self._insert(
@@ -190,7 +214,7 @@ type HashMap<Key: Hashable, Value> {
     while storage.advanced(by: i).unsafe_pointee.payload != nil {
       i = (i + 1) % capacity
     }
-    storage.advanced(by: i).assign(to: (hash: hash, payload: payload))
+    storage.advanced(by: i).assign(to: (hash: hash, busy: true, payload: payload))
   }
 
 }
