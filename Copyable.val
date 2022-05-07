@@ -1,5 +1,7 @@
-trait Copyable {
+// A type that can be copied.
+public trait Copyable {
 
+  // Returns a copy of `self`.
   fun copy() -> Self
 
 }

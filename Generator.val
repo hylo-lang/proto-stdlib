@@ -1,0 +1,20 @@
+trait Generator {
+
+  type Element
+
+  type Peeker: StreamPeeker where Peeker.Element == Element
+
+  // Returns the next element, or `nil` if no such element exists.
+  fun next() -> Maybe<Element> { inout }
+
+}
+
+trait StreamPeeker {
+
+  type Element
+
+  subscript peek(): Element { let }
+
+  fun pop() -> Maybe<Element> { inout }
+
+}

@@ -1,5 +1,10 @@
-trait Equatable {
+// A type that supports equality.
+public trait Equatable {
 
-  infix fun == (_: Self, _: Self) -> Bool
+  // Returns whether `self` is equal to `other`.
+  infix fun == (_ other: Self) -> Bool
+
+  // Returns whether `self` is not equal to `other`.
+  infix fun != (_ other: Self) -> Bool { !(self == other) }
 
 }

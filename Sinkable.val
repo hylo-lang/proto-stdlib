@@ -1,0 +1,2 @@
+// A type that is sinkable.
+public trait Sinkable {}

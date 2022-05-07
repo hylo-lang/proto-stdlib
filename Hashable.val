@@ -1,5 +1,7 @@
-trait Hashable: Equatable {
+// A type that can be hashed.
+public trait Hashable: Copyable {
 
-  fun hash<Hasher: HasherTrait>(into hasher: inout Hasher)
+  // Hashes the values of the salient parts of `self` into `hasher`.
+  fun hash(into hasher: inout Hasher)
 
 }

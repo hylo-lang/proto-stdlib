@@ -1,5 +1,0 @@
-trait HasherTrait {
-
-  mutating fun combine(_ i: Int)
-
-}
