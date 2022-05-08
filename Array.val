@@ -165,9 +165,9 @@ extension Array where Element: Sinkable {
     }
   }
 
-  // Appends the elements produced by `generator` to the array.
-  public fun append<G: Generator where G.Element == Element>(elements_of generator: inout G) {
-    inout { while let e = generator.next() { append(e) } }
+  // Appends the elements produced by `source` to the array.
+  public fun append<G: Generator where G.Element == Element>(elements_of source: inout G) {
+    inout { while let e = source.next() { append(e) } }
   }
 
   // Removes and returns the last element of the array, if any.
@@ -215,8 +215,8 @@ extension Array where Element: Copyable {
     let { copy().append(new_element) }
   }
 
-  public fun append<G: Generator where G.Element == Element>(elements_of generator: inout G) {
-    let { copy().append(&generator) }
+  public fun append<G: Generator where G.Element == Element>(elements_of source: inout G) {
+    let { copy().append(&source) }
   }
 
 }
