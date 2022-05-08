@@ -32,7 +32,7 @@ type ArrayBuffer<Element>: Sinkable {
     header.initialize(to: (count: 0, capacity: capacity))
   }
 
-  drop() {
+  public sink fun deinit() {
     // Deallocate the buffer's memory if necessary.
     if header != MutablePointer(pointer(to: empty_array_header)) { address.deallocate() }
   }
@@ -78,9 +78,9 @@ public type Array<Element> {
     source = ArrayBuffer(capacity: minimum_capacity)
   }
 
-  drop() {
+  public sink fun deinit() {
     for let i in 0 ..< source.header[unsafe: 0].count {
-      source.payload[unsafe: i].drop()
+      source.payload[unsafe: i].deinit()
     }
   }
 
@@ -139,10 +139,10 @@ extension Array where Element: Sinkable {
       source = source.take_source()
     }
 
-    drop() {
+    public sink fun deinit() {
       // Destroy the remaining elements, if any.
       for let i in next_element_index ..< source.header[unsafe: 0].count {
-        source.payload[unsafe: i].drop()
+        source.payload[unsafe: i].deinit()
       }
     }
 
@@ -296,7 +296,7 @@ public conformance Array: Indexable {
     sink {
       precondition((0 <= i) && (i < count()))
       for let j in 0 ..< count() where j != i {
-        source.payload[unsafe: j].drop()
+        source.payload[unsafe: j].deinit()
       }
       return source.payload[unsafe: i]
     }
