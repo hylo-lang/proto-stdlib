@@ -146,7 +146,7 @@ extension Array where Element: Sinkable {
       }
     }
 
-    public fun next() -> Maybe<Element> {
+    public fun next() -> Optional<Element> {
       inout {
         if next_element_index == source.header[unsafe: 0].count { return nil }
         defer { next_element_index += 1 }
@@ -171,7 +171,7 @@ extension Array where Element: Sinkable {
   }
 
   // Removes and returns the last element of the array, if any.
-  public fun pop_last() -> Maybe<Element> {
+  public fun pop_last() -> Optional<Element> {
     inout {
       if is_empty() { return nil }
 
@@ -196,7 +196,7 @@ extension Array where Element: Copyable {
     // - Invariant: `next_element_index <= source.header[unsafe: 0].count`
     var next_element_index = 0
 
-    public fun next() -> Maybe<Element> {
+    public fun next() -> Optional<Element> {
       inout {
         if next_element_index == source.header[unsafe: 0].count { return nil }
         defer { next_element_index += 1 }
