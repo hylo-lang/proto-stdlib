@@ -1,6 +1,7 @@
 // Questions:
 // - Should `pops` be a requirement of `Collection`?
 // - Should we have a `CopyableCollection` trait to require `copies`?
+// - Should `ConsumingGenerator` be copyable when `Element: Copyable`?
 
 // # Helpers
 
@@ -10,126 +11,161 @@ typealias ArrayHeader = (count: Int, capacity: Int)
 // The header of the empty array.
 let empty_array_header: ArrayHeader = (count: 0, capacity: 0)
 
+// A dynamically allocated array buffer.
+type ArrayBuffer<Element>: Sinkable {
+
+  // The base address of the buffer.
+  //
+  // - Invariant: The pointer is aligned to `ArrayHeader`.
+  var address: MutableRawPointer
+
+  // Creates an empty buffer.
+  public init() {
+    address = MutableRawPointer(pointer(to: empty_array_header))
+  }
+
+  // Creates a new buffer capable of storing `capacity` elements.
+  public init(capacity: sink Int) {
+    Memory.allocate(
+      bytes: Self.payload_offset() + capacity * MemoryLayout<Element>.stride,
+      alignment: MemoryLayout<ArrayHeader>.alignment)
+    header.initialize(to: (count: 0, capacity: capacity))
+  }
+
+  drop() {
+    // Deallocate the buffer's memory if necessary.
+    if header != MutablePointer(pointer(to: empty_array_header)) { address.deallocate() }
+  }
+
+  // A pointer to the buffer's header.
+  public property header: MutablePointer<ArrayHeader> {
+    address.assume_bound<ArrayHeader>()
+  }
+
+  // A pointer to the buffer's payload.
+  //
+  // The projected pointer is a valid if and only if `header[offset: 0].count > 0`. Otherwise,
+  // deferencing it causes undefined behavior.
+  public property payload: MutablePointer<Element> {
+    address.advanced(by: Self.payload_offset()).assume_bound<Element>()
+  }
+
+  // Returns the offset in bytes from the address of the buffer to 
+  static fun payload_offset() -> Int {
+    let x = MemoryLayout<Element>.alignment - 1
+    return (MemoryLayout<ArrayHeader>.size + x) & ~x
+  }
+
+}
+
 // # Primary declaration
 
 // An array of homogeneous elements.
 public type Array<Element> {
 
+  // The buffer containing the array's elements.
+  var source: ArrayBuffer<Element>
+
+  // Creates an empty array.
+  public init() {
+    source = ArrayBuffer()
+  }
+
+  // Creates an empty array with a minimum capacity.
+  //
+  // - Requires: `minimum_capacity >= 0`
+  public init(minimum_capacity: sink Int) {
+    source = ArrayBuffer(capacity: minimum_capacity)
+  }
+
+  drop() {
+    for let i in 0 ..< source.header[unsafe: 0].count {
+      source.payload[unsafe: i].drop()
+    }
+  }
+
+  // Returns whether the array is empty.
+  public fun is_empty() -> Bool { count() == 0 }
+
+  // Returns the number of elements in the array.
+  public fun count() -> Int { source.header[unsafe: 0].count.copy() }
+
+  // Returns the capacity of the array, i.e., the number of elements the array can contain without
+  // allocating new memory.
+  public fun capacity() -> Int { source.header[unsafe: 0].capacity.copy() }
+
+  // Reserves enough space to store `minimum_capacity` elements without allocating new memory.
+  public fun reserve(minimum_capacity: Int) {
+    inout {
+      if capacity() >= minimum_capacity { return }
+
+      // Allocate a new buffer.
+      var new_source = ArrayBuffer(capacity: minimum_capacity.copy())
+
+      // Transfer the elements to the new buffer.
+      new_source.header[unsafe: 0].count = count()
+      new_source.payload.move_initialize(from: source.payload, count: count())
+      swap(&source, &new_source)
+    }
+  }
+
+  // Consumes of the array.
+  sink fun take_source() -> ArrayBuffer<Element> { source }
+
+}
+
+// # Conditional API
+
+extension Array where Element: Sinkable {
+
   // A generator that consumes an array to produce its elements.
-  public type ConsumingGenerator: Generator {
+  public type ConsumingGenerator: Generator, Sinkable {
 
     // Implementation note:
     // 
-    // The generator moves the elements contained in the array starting from the front. The other
-    // elements are never moved, instead the generator uses an index to point at the next element
-    // to output. Consequently, the invariants of the array do not hold while the generator is
-    // alive, which is responsible to restore them before the array is destroyed.
+    // The generator moves the elements in `source` from the front. Elements are never moved,
+    // instead the generator uses an index to point at the next element to output.
 
-    // The array from which elements are being consumed.
-    //
-    // This property is `nil` when there are no more elements to output.
-    var array: Maybe<Array>
+    // The buffer from which elements are being consumed.
+    var source: ArrayBuffer<Element>
 
     // The index of the next element to output.
     //
-    // - Requires: `array == nil` or `next_element_index < array.count()`
+    // - Invariant: `next_element_index <= source.header[unsafe: 0].count`
     var next_element_index = 0
 
     // Creates a consuming generator that produces the elements in `array`.
     init(_ array: sink Array) {
-      self.array = if array.is_empty() { nil } else { array }
+      source = array.take_source()
     }
 
     drop() {
-      inout array = array ?? { return }
-      assert(next_element_index < array.count())
-
-      // Manually drop the remainder of the array's elements.
-      for let i in next_element_index ..< array.count() { array.buffer[i].drop() }
-
-      // Deallocate the array's buffer and destroy it.
-      array.base.deallocate()
-      array.base = MutableRawPointer(pointer(to: ArrayHeader))
-      array.drop()
+      // Destroy the remaining elements, if any.
+      for let i in next_element_index ..< source.header[unsafe: 0].count {
+        source.payload[unsafe: i].drop()
+      }
     }
 
     public fun next() -> Maybe<Element> {
       inout {
-        inout array = array ?? { return nil }
-        
-        defer {
-          next_element_index += 1
-
-          // If we reached the end of the array, deallocate it's buffer and destroy it.
-          if next_element_index == array.count() {
-            array.base.deallocate()
-            array.base = MutableRawPointer(pointer(to: ArrayHeader))
-            self.array = nil
-          }
-        }
-        
-        return array.buffer[next_element_index]
+        if next_element_index == source.header[unsafe: 0].count { return nil }
+        defer { next_element_index += 1 }
+        return source.payload[unsafe: next_element_index]
       }
     }
 
   }
 
-  // A pointer to the array's storage.
-  var base: MutableRawPointer
-
-  // Creates an empty array.
-  public init() {
-    base = MutableRawPointer(pointer(to: ArrayHeader))
-  }
-
-  // Creates an empty array with a minimum capacity.
-  public init(minimum_capacity: Int) {
-    base = Memory.allocate(
-      bytes: MemoryLayout<ArrayHeader>.size + minimum_capacity * MemoryLayout<Element>.stride,
-      alignment: MemoryLayout<ArrayHeader>.alignment)
-    header.initialize(to: (count: 0, capacity: minimum_capacity))
-  }
-
-  // Destroys the array.
-  drop() {
-    if header != MutablePointer(pointer(to: empty_array_header)) {
-      for let i in 0 ..< header.unsafe_pointee.count { buffer[i].drop() }
-      base.deallocate()
-    }
-
-    // Note: There's no need to drop `base` because it's trivially destructible.
-  }
-
-  // A pointer to the array's header.
-  property header: MutablePointer<ArrayHeader> {
-    base.assume_bound<ArrayHeader>()
-  }
-
-  // A pointer to the arrays's elements.
-  property buffer: MutablePointer<Element> {
-    base.advanced(MemoryLayout<ArrayHeader>.size).assume_bound<Element>()
-  }
-
-  // Returns whether the array is empty.
-  public fun is_empty() -> Bool { header.unsafe_pointee.count == 0 }
-
-  // Returns the number of elements in the array.
-  public fun count() -> Int { header.unsafe_pointee.count }
-
-  // Returns the capacity of the array, i.e., the number of elements the array can contain without
-  // allocating new memory.
-  public fun capacity() -> Int { header.unsafe_pointee.capacity }
-
-  // Appends `element` to the array.
-  public fun append(_ element: sink Element) {
+  // Appends `new_element` to the array.
+  public fun append(_ new_element: sink Element) {
     inout {
-      if count() + 1 < capacity() { resize(minimum_capacity: may(1, capacity() * 2)) }
-      buffer[count()] = element
-      header.unsafe_pointee.count += 1
+      if count() + 1 < capacity() { reserve(minimum_capacity: max(1, capacity() * 2)) }
+      source.payload[unsafe: count()] = new_element
+      source.header[unsafe: 0].count += 1
     }
   }
 
-  // Appends the elements produced by `genetator` to the array.
+  // Appends the elements produced by `generator` to the array.
   public fun append<G: Generator where G.Element == Element>(elements_of generator: inout G) {
     inout { while let e = generator.next() { append(e) } }
   }
@@ -140,56 +176,31 @@ public type Array<Element> {
       if is_empty() { return nil }
 
       let i = count() - 1
-      defer { header.unsafe_pointee.count = i }
-      return buffer[i]
-    }
-  }
-
-  // Resizes the array such that it can contain at least `minimum_capacity` elements without
-  // allocating new memory.
-  public fun resize(minimum_capacity: Int) {
-    inout {
-      if capacity() >= minimum_capacity { return }
-      
-      // Allocate new storage.
-      let new_base = Memory.allocate(
-        bytes: MemoryLayout<ArrayHeader>.size + minimum_capacity * MemoryLayout<Element>.stride,
-        alignment: MemoryLayout<ArrayHeader>.alignment)
-
-      // Configure the new storage's header and move the elements.
-      new_base.assume_bound<ArrayHeader>()
-        .initialize(to: (count: count(), capacity: minimum_capacity))
-      new_base.advanced(MemoryLayout<ArrayHeader>.size).assume_bound<Element>()
-        .move_initialize(from: buffer, count: count())
-
-      // Reassign the array's storage.
-      base.deallocate()
-      base = new_base
+      defer { source.header[unsafe: 0].count = i }
+      return source.payload[unsafe: i]
     }
   }
 
 }
-
-// # Conditional API
 
 extension Array where Element: Copyable {
 
   // A generator that produces the elements of an array by copying them.
   public type CopyingGenerator: Generator {
 
-    // The array from which elements are being consumed.
-    var array: let Array
+    // The buffer from which elements are being copied.
+    var source: let ArrayBuffer<Element>
 
     // The index of the next element to output.
     //
-    // - Requires: `next_element_index <= array.count()`
+    // - Invariant: `next_element_index <= source.header[unsafe: 0].count`
     var next_element_index = 0
 
     public fun next() -> Maybe<Element> {
       inout {
-        if next_element_index == array.count() { return nil }
+        if next_element_index == source.header[unsafe: 0].count { return nil }
         defer { next_element_index += 1 }
-        return array.buffer[next_element_index].copy()
+        return source.payload[unsafe: next_element_index].copy()
       }
     }
 
@@ -200,8 +211,8 @@ extension Array where Element: Copyable {
     let { CopyingGenerator(array: self) }
   }
 
-  public fun append(_ element: sink Element) {
-    let { copy().append(element) }
+  public fun append(_ new_element: sink Element) {
+    let { copy().append(new_element) }
   }
 
   public fun append<G: Generator where G.Element == Element>(elements_of generator: inout G) {
@@ -217,11 +228,13 @@ public conformance Array: Sinkable where Element: Sinkable {}
 public conformance Array: Copyable where Element: Copyable {
 
   public fun copy() -> Self {
+    if is_empty() { return Array() }
     var other = Array(minimum_capacity: count())
-    if is_empty() { return other }
     
-    other.header.count = count()
-    for let i in 0 ..< count() { other.buffer[i] = buffer[i].copy() }
+    other.source.header[unsafe: 0].count = count()
+    for let i in 0 ..< count() {
+      other.source.payload[unsafe: i] = source.payload[unsafe: i].copy()
+    }
     return other
   }
 
@@ -230,12 +243,11 @@ public conformance Array: Copyable where Element: Copyable {
 public conformance Array: Equatable where Element: Equatable {
 
   public infix fun == (_ other: Self) -> Bool {
-    if count() == other.count() {
-      for let i in 0 ..< count() where buffer[i] != other.buffer[i] { return false }
-      return true
-    } else {
-      return false
+    if count() != other.count() { return false }
+    for let i in 0 ..< count() {
+      if source.payload[unsafe: i] != other.source.payload[unsafe: i] { return false }
     }
+    return true
   }
 
 }
@@ -243,7 +255,7 @@ public conformance Array: Equatable where Element: Equatable {
 public conformance Array: Hashable where Element: Hashable {
 
   public fun hash(into hasher: inout Hasher) {
-    for let i in 0 ..< count() { buffer[i].hash(into: &hasher) }
+    for let i in 0 ..< count() { source.payload[unsafe: i].hash(into: &hasher) }
   }
 
 }
@@ -271,24 +283,22 @@ public conformance Array: Indexable {
   public subscript (_ i: Int): Element {
     let {
       precondition((0 <= i) && (i < count()))
-      yield buffer[i]
+      yield source.payload[unsafe: i]
     }
     inout {
       precondition((0 <= i) && (i < count()))
-      yield &buffer[i]
+      yield &source.payload[unsafe: i]
     }
     set {
       precondition((0 <= i) && (i < count()))
-      buffer[i] = new_value
+      source.payload[unsafe: i] = new_value
     }
     sink {
       precondition((0 <= i) && (i < count()))
-      defer { base.deallocate() }
-      
-      for let j in 0 ..< header.unsafe_pointee.count where i != i {
-        buffer[j].drop()
+      for let j in 0 ..< count() where j != i {
+        source.payload[unsafe: j].drop()
       }
-      return buffer[i]
+      return source.payload[unsafe: i]
     }
   }
 
