@@ -109,7 +109,7 @@ public type Array<Element> {
     }
   }
 
-  // Consumes of the array.
+  // Returns the array source.
   sink fun take_source() -> ArrayBuffer<Element> { source }
 
 }
@@ -134,9 +134,9 @@ extension Array where Element: Sinkable {
     // - Invariant: `next_element_index <= source.header[unsafe: 0].count`
     var next_element_index = 0
 
-    // Creates a consuming generator that produces the elements in `array`.
-    init(_ array: sink Array) {
-      source = array.take_source()
+    // Creates a consuming generator that produces the elements in `source`.
+    public init(_ source: sink Array) {
+      source = source.take_source()
     }
 
     drop() {
