@@ -109,6 +109,18 @@ public type Array<Element> {
     }
   }
 
+  // Appends an element, constructing it in-place.
+  public fun emplace_back<Args...>(
+    _ constructor: inout (set Element, sink ...Args),
+    _ arguments: Args
+  ) {
+    inout {
+      if count() + 1 < capacity() { reserve(minimum_capacity: max(1, capacity() * 2)) }
+      constructor(&source.payload[unsafe: count()], ...arguments)
+      source.header[unsafe: 0].count += 1
+    }
+  }
+
   // Returns the array source.
   sink fun take_source() -> ArrayBuffer<Element> { source }
 
@@ -213,10 +225,6 @@ extension Array where Element: Copyable {
 
   public fun append(_ new_element: sink Element) {
     let { copy().append(new_element) }
-  }
-
-  public fun append<G: Generator where G.Element == Element>(elements_of source: inout G) {
-    let { copy().append(&source) }
   }
 
 }
